@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model TaninanIstifadeci {
+  id              String            @id
+  adSoyad         String
+  rol             String            @default("USER") // 'SUPERADMIN' | 'ADMIN' | 'USER'
+  sonGirisTarixi  DateTime?
+  cihazId         String?
+  sobeler         Sobe[]            @relation("IstifadeciSobeler")
+  oxunmalar       BildirisOxunma[]
+  gonderilenler   Bildiris[]        @relation("GonderenIstifadeci")
+  yaradildi       DateTime          @default(now())
+  yenilendi       DateTime          @updatedAt
+}
+
+model Sobe {
+  id        String              @id @default(uuid())
+  ad        String              @unique
+  uzvler    TaninanIstifadeci[] @relation("IstifadeciSobeler")
+  yaradildi DateTime            @default(now())
+}
+
+model Bildiris {
+  id          String           @id @default(uuid())
+  gonderenId  String
+  gonderenAd  String
+  mesaj       String
+  seviyye     String           @default("ADI") // 'ADI' | 'VACIB' | 'COX_VACIB'
+  yaradildi   DateTime         @default(now())
+  hedefTipi   String           // 'USER' | 'SOBE' | 'HAMISI'
+  hedefId     String?          // istifadəçi ID və ya şöbə ID (əgər HAMISI deyilsə)
+  silinib     Boolean          @default(false)
+  gonderen    TaninanIstifadeci @relation("GonderenIstifadeci", fields: [gonderenId], references: [id])
+  oxunmalar   BildirisOxunma[]
+}
+
+model BildirisOxunma {
+  id               String            @id @default(uuid())
+  bildirisId       String
+  istifadeciId     String
+  gonderildiTarixi DateTime          @default(now())
+  catdiTarixi      DateTime?
+  oxunduTarixi     DateTime?
+
+  bildiris         Bildiris          @relation(fields: [bildirisId], references: [id], onDelete: Cascade)
+  istifadeci       TaninanIstifadeci @relation(fields: [istifadeciId], references: [id], onDelete: Cascade)
+
+  @@unique([bildirisId, istifadeciId])
+}
