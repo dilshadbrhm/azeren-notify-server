@@ -49,7 +49,7 @@ async function bootstrap() {
 
   // CORS aktivləşdirilməsi
   app.enableCors({
-    origin: '*',
+    origin: true,
     credentials: true,
   });
 

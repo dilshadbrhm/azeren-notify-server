@@ -64,11 +64,13 @@ export class NotifyService {
       recipientUserIds = allUsers.map((u) => u.id);
     }
 
+    const senderName = sender.adSoyad || (sender as any).name || `İstifadəçi #${sender.id}`;
+
     // Bildirişi və hər alıcı üçün BildirisOxunma qeydlərini yaradırıq
     const bildiris = await this.prisma.bildiris.create({
       data: {
         gonderenId: sender.id,
-        gonderenAd: sender.adSoyad,
+        gonderenAd: senderName,
         mesaj: dto.mesaj,
         seviyye: dto.seviyye || 'ADI',
         hedefTipi: dto.hedefTipi,
@@ -103,8 +105,12 @@ export class NotifyService {
       throw new NotFoundException('Bildiriş tapılmadı');
     }
 
-    if (currentUser.rol !== 'SUPERADMIN' && bildiris.gonderenId !== currentUser.id) {
-      throw new ForbiddenException('Yalnız bildirişi göndərən admin və ya SuperAdmin silə bilər');
+    if (currentUser.rol !== 'ADMIN' && currentUser.rol !== 'SUPERADMIN') {
+      throw new ForbiddenException('Yalnız Admin və ya SuperAdmin bildiriş silə bilər');
+    }
+
+    if (bildiris.gonderenId !== currentUser.id) {
+      throw new ForbiddenException('Yalnız bildirişin öz göndərəni bu bildirişi silə bilər');
     }
 
     const updated = await this.prisma.bildiris.update({
@@ -141,7 +147,7 @@ export class NotifyService {
     return record;
   }
 
-  // Çatmamış (pending) bildirişləri götürmək
+  // Çatmamış (pending) bildirişləri götürmək (köhnədən yeniyə ardıcıllıqla)
   async getUndeliveredNotificationsForUser(userId: string) {
     const undelivered = await this.prisma.bildirisOxunma.findMany({
       where: {
@@ -153,6 +159,9 @@ export class NotifyService {
       },
       include: {
         bildiris: true,
+      },
+      orderBy: {
+        gonderildiTarixi: 'asc',
       },
     });
 
@@ -203,24 +212,48 @@ export class NotifyService {
 
   // REST: Adminin göndərdiyi bildirişlər
   async getAdminSentNotifications(adminId: string, isSuperAdmin: boolean) {
-    return this.prisma.bildiris.findMany({
-      where: isSuperAdmin ? {} : { gonderenId: adminId },
-      include: {
-        oxunmalar: {
-          include: {
-            istifadeci: {
-              select: { id: true, adSoyad: true },
+    const [bildirisler, sobeler] = await Promise.all([
+      this.prisma.bildiris.findMany({
+        where: isSuperAdmin ? {} : { gonderenId: adminId },
+        include: {
+          oxunmalar: {
+            include: {
+              istifadeci: {
+                select: { id: true, adSoyad: true },
+              },
             },
           },
         },
-      },
-      orderBy: {
-        yaradildi: 'desc',
-      },
+        orderBy: {
+          yaradildi: 'desc',
+        },
+      }),
+      this.prisma.sobe.findMany({
+        select: { id: true, ad: true },
+      }),
+    ]);
+
+    const sobeMap = new Map<string, string>(sobeler.map((s) => [s.id, s.ad]));
+
+    return bildirisler.map((b) => {
+      const cemiAlici = b.oxunmalar.length;
+      const oxuyanSay = b.oxunmalar.filter((o) => o.oxunduTarixi != null).length;
+      let hedefAd = 'Bütün İstifadəçilər';
+      if (b.hedefTipi === 'SOBE' && b.hedefId) {
+        hedefAd = sobeMap.get(b.hedefId) || ('Şöbə #' + b.hedefId);
+      } else if (b.hedefTipi === 'USER' && b.hedefId) {
+        hedefAd = 'İstifadəçi #' + b.hedefId;
+      }
+
+      return {
+        ...b,
+        cemiAlici,
+        oxuyanSay,
+        hedefAd,
+      };
     });
   }
 
-  // REST: Bütün tanınan istifadəçilər (şöbələri ilə)
   async getAllUsers() {
     return this.prisma.taninanIstifadeci.findMany({
       include: {
@@ -234,20 +267,42 @@ export class NotifyService {
 
   // REST: Şöbə yarat
   async createSobe(ad: string) {
+    const trimmedAd = (ad || '').trim();
+    const existing = await this.prisma.sobe.findUnique({
+      where: { ad: trimmedAd },
+    });
+    if (existing) {
+      return existing;
+    }
     return this.prisma.sobe.create({
-      data: { ad },
+      data: { ad: trimmedAd },
     });
   }
 
-  // REST: Bütün şöbələri gətir
+  // REST: Bütün şöbələri gətir (üzv sayı ilə)
   async getAllSobeler() {
-    return this.prisma.sobe.findMany({
+    const sobeler = await this.prisma.sobe.findMany({
       include: {
+        _count: {
+          select: { uzvler: true },
+        },
         uzvler: {
           select: { id: true, adSoyad: true, rol: true },
         },
       },
+      orderBy: {
+        ad: 'asc',
+      },
     });
+
+    return sobeler.map((s) => ({
+      id: s.id,
+      ad: s.ad,
+      uzvSayi: s._count?.uzvler ?? s.uzvler?.length ?? 0,
+      memberCount: s._count?.uzvler ?? s.uzvler?.length ?? 0,
+      uzvler: s.uzvler,
+      yaradildi: s.yaradildi,
+    }));
   }
 
   // REST: İstifadəçini şöbələrə təyin et
@@ -260,16 +315,27 @@ export class NotifyService {
       throw new NotFoundException('İstifadəçi tapılmadı');
     }
 
-    return this.prisma.taninanIstifadeci.update({
+    const validIds = Array.isArray(sobeIds) ? sobeIds : [];
+
+    const updatedUser = await this.prisma.taninanIstifadeci.update({
       where: { id: userId },
       data: {
         sobeler: {
-          set: sobeIds.map((id) => ({ id })),
+          set: validIds.map((id) => ({ id })),
         },
       },
       include: {
-        sobeler: true,
+        sobeler: {
+          select: { id: true, ad: true },
+        },
       },
     });
+
+    return {
+      id: updatedUser.id,
+      adSoyad: updatedUser.adSoyad,
+      rol: updatedUser.rol,
+      sobeler: updatedUser.sobeler.map((s) => ({ id: s.id, ad: s.ad })),
+    };
   }
 }

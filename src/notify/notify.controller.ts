@@ -27,6 +27,19 @@ export class NotifyController {
     private readonly notifyGateway: NotifyGateway,
   ) {}
 
+  // GET /notify/men - cari istifadecinin notify sistemindeki rolu ve melumatlari
+  @Get('men')
+  async getMen(@User() user: CurrentUser) {
+    return {
+      ugurlu: true,
+      data: {
+        id: user.id,
+        adSoyad: user.adSoyad,
+        rol: user.rol,
+      },
+    };
+  }
+
   // GET /notify/tarixce — cari istifadəçinin bütün aldığı bildirişlərin tarixçəsi
   @Get('tarixce')
   async getTarixce(@User() user: CurrentUser) {
@@ -39,6 +52,11 @@ export class NotifyController {
         seviyye: r.bildiris.seviyye,
         gonderenAd: r.bildiris.gonderenAd,
         gonderenId: r.bildiris.gonderenId,
+        gonderen: {
+          id: r.bildiris.gonderenId,
+          adSoyad: r.bildiris.gonderenAd,
+          name: r.bildiris.gonderenAd,
+        },
         hedefTipi: r.bildiris.hedefTipi,
         hedefId: r.bildiris.hedefId,
         gonderildiTarixi: r.gonderildiTarixi,
@@ -65,16 +83,18 @@ export class NotifyController {
   @Roles('ADMIN', 'SUPERADMIN')
   async getIstifadeciler() {
     const users = await this.notifyService.getAllUsers();
-    const result = users.map((u) => ({
-      id: u.id,
-      adSoyad: u.adSoyad,
-      rol: u.rol,
-      sonGirisTarixi: u.sonGirisTarixi,
-      cihazId: u.cihazId,
-      isOnline: this.notifyGateway.isUserOnline(u.id),
-      sobeler: u.sobeler,
-      yaradildi: u.yaradildi,
-    }));
+    const result = users.map((u) => {
+      const onlayn = this.notifyGateway.isUserOnline(u.id);
+      return {
+        id: u.id,
+        adSoyad: u.adSoyad,
+        rol: u.rol,
+        onlayn,
+        isOnline: onlayn,
+        sonGirisTarixi: u.sonGirisTarixi,
+        sobeler: (u.sobeler || []).map((s) => ({ id: s.id, ad: s.ad })),
+      };
+    });
 
     return {
       ugurlu: true,

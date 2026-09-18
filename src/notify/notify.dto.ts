@@ -1,9 +1,9 @@
-import { IsNotEmpty, IsOptional, IsString, IsIn } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsIn, IsArray } from 'class-validator';
 
 export class SendNotificationDto {
   @IsNotEmpty()
-  @IsIn(['USER', 'SOBE', 'HAMISI'])
-  hedefTipi: 'USER' | 'SOBE' | 'HAMISI';
+  @IsIn(['USER', 'SOBE', 'HAMISI', 'user', 'sobe', 'hamisi', 'ISTIFADECI', 'istifadeci'])
+  hedefTipi: string;
 
   @IsOptional()
   @IsString()
@@ -14,8 +14,8 @@ export class SendNotificationDto {
   mesaj: string;
 
   @IsOptional()
-  @IsIn(['ADI', 'VACIB', 'COX_VACIB'])
-  seviyye?: 'ADI' | 'VACIB' | 'COX_VACIB';
+  @IsIn(['ADI', 'VACIB', 'COX_VACIB', 'adi', 'vacib', 'cox_vacib'])
+  seviyye?: string;
 }
 
 export class DeleteNotificationDto {
@@ -43,6 +43,7 @@ export class CreateSobeDto {
 }
 
 export class AssignUserSobeDto {
-  @IsNotEmpty()
+  @IsArray()
+  @IsString({ each: true })
   sobeIds: string[]; // Şöbə ID-lərinin massivi
 }

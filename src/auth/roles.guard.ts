@@ -29,10 +29,14 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('İstifadəçi rolu tapılmadı');
     }
 
-    // SUPERADMIN bütün ADMIN icazələrinə də malikdir
+    const userRole = String(user.rol || '').trim().toUpperCase();
+
+    // SUPERADMIN bütün icazələrə malikdir. ADMIN isə ADMIN və USER icazələrinə malikdir.
     const hasRole = requiredRoles.some((role) => {
-      if (user.rol === 'SUPERADMIN') return true;
-      return user.rol === role;
+      const targetRole = String(role).trim().toUpperCase();
+      if (userRole === 'SUPERADMIN') return true;
+      if (userRole === 'ADMIN' && (targetRole === 'ADMIN' || targetRole === 'USER')) return true;
+      return userRole === targetRole;
     });
 
     if (!hasRole) {
